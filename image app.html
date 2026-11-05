@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tool Label Maker</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eceff1;--surface:#fff;--ink:#14181c;--muted:#5b6670;--line:#cfd6db;--accent:#f5b301;--accent-ink:#14181c;--danger:#c0392b;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12161a;--surface:#1b2127;--ink:#e9eef2;--muted:#95a1ab;--line:#2c353d;--danger:#ff7b6b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#12161a;--surface:#1b2127;--ink:#e9eef2;--muted:#95a1ab;--line:#2c353d;--danger:#ff7b6b;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 "Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:24px 16px 56px}
+h1{margin:0;font:600 38px/1.1 "Barlow Condensed","Barlow",system-ui,sans-serif;letter-spacing:.01em}
+.sub{margin:4px 0 22px;color:var(--muted)}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+h2{margin:0 0 4px;font:600 22px/1.2 "Barlow Condensed","Barlow",system-ui,sans-serif}
+.hint{margin:0 0 12px;color:var(--muted);font-size:15px}
+.cols{display:grid;grid-template-columns:260px 1fr;gap:18px;align-items:start}
+@media (max-width:720px){.cols{grid-template-columns:1fr}}
+.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:150px;border:1.5px dashed var(--line);border-radius:8px;background:var(--bg);color:var(--muted);cursor:pointer;overflow:hidden;padding:8px;font-size:15px}
+.drop.over{border-color:var(--accent)}
+.drop canvas{max-width:100%;max-height:260px;display:block;border-radius:4px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+button{font:inherit;font-weight:500;border-radius:6px;padding:8px 14px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.small{padding:3px 9px;font-size:14px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.status{min-height:22px;margin:10px 0 0;font-size:15px;color:var(--muted)}
+.status.err{color:var(--danger)}
+.list{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.hd,.r{display:grid;grid-template-columns:72px 1fr 150px 44px;gap:6px;padding:5px 8px;align-items:center}
+.hd{font-size:13px;color:var(--muted);font-weight:500;position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--line)}
+.r+.r{border-top:1px solid var(--line)}
+.r input,.in{width:100%;font:inherit;font-size:15px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:5px 7px;min-width:0}
+.none{padding:22px;text-align:center;color:var(--muted)}
+label.l{display:block;font-weight:500;margin:12px 0 4px}
+.out{margin-top:14px}
+.out canvas{width:100%;height:auto;display:block;border-radius:8px;border:1px solid var(--line)}
+.note{color:var(--muted);font-size:14px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tool Label Maker</h1>
+  <p class="sub">Read a data sheet photo, then put each tool’s serial number, part number and name on your tool photo.</p>
+
+  <section class="step" aria-labelledby="h1">
+    <h2 id="h1">1. Data sheet photo</h2>
+    <p class="hint">Upload the photo of your list. If it is upside down or sideways, press Rotate until the text is upright.</p>
+    <div class="cols">
+      <div>
+        <div class="drop" id="sheetDrop" tabindex="0" role="button" aria-label="Choose the data sheet photo">Click or drop the data sheet photo</div>
+        <input id="sheetFile" type="file" accept="image/*" hidden>
+        <div class="row">
+          <button id="rot" disabled>Rotate</button>
+          <button id="read" class="primary" disabled>Read data sheet</button>
+        </div>
+        <div class="status" id="sheetStatus" role="status"></div>
+      </div>
+      <div>
+        <div class="list" id="list" aria-label="Data from the sheet"></div>
+        <div class="row">
+          <button id="add" class="small">Add row</button>
+          <button id="clear" class="small">Clear all</button>
+        </div>
+        <p class="note">Check the rows after reading. You can fix any serial number, name or part number by typing in it.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="step" aria-labelledby="h2">
+    <h2 id="h2">2. Tool photo</h2>
+    <p class="hint">Upload the photo of the tools, then type the serial numbers in the order they sit from left to right.</p>
+    <div class="cols">
+      <div>
+        <div class="drop" id="toolDrop" tabindex="0" role="button" aria-label="Choose the tool photo">Click or drop the tool photo</div>
+        <input id="toolFile" type="file" accept="image/*" hidden>
+      </div>
+      <div>
+        <label class="l" for="serials">Serial numbers, left to right</label>
+        <input class="in" id="serials" type="text" autocomplete="off" placeholder="131-136  or  131, 132, 133">
+        <p class="note">A range like 131-136 works, or a list separated by commas. The labels appear as soon as both the photo and serial numbers are ready.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="step" aria-labelledby="h3">
+    <h2 id="h3">3. Labelled photo</h2>
+    <div id="outEmpty" class="note">Add the tool photo and serial numbers to see the result here.</div>
+    <div class="out" id="outWrap" hidden>
+      <canvas id="out"></canvas>
+      <div class="row"><button id="dl" class="primary">Download picture</button></div>
+      <div class="status" id="dlStatus" role="status"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id)};
+  var rows=[],sheetImg=null,sheetRot=0,toolImg=null,sample=null,downloads=null,busy=false;
+
+  /* ---------- storage (optional) ---------- */
+  try{var s=localStorage.getItem('tlm_rows');if(s)rows=JSON.parse(s)||[]}catch(e){rows=[]}
+  function saveRows(){try{localStorage.setItem('tlm_rows',JSON.stringify(rows))}catch(e){}}
+
+  /* ---------- capabilities ---------- */
+  (async function(){
+    try{if(window.claude&&claude.use){
+      sample=await claude.use('sample');downloads=await claude.use('downloads');
+      if(sample&&sample.limits){try{var l=await sample.limits();if(!l.images)sample=null}catch(e){sample=null}}
+    }}catch(e){sample=null}
+    if(!sample){$('sheetStatus').textContent='Reading a photo needs Claude, which is not available here. Type the rows by hand instead.';$('sheetStatus').className='status err'}
+    refreshButtons();
+  })();
+
+  /* ---------- helpers ---------- */
+  function loadImage(file){return new Promise(function(res,rej){
+    var u=URL.createObjectURL(file),im=new Image();
+    im.onload=function(){res(im)};im.onerror=function(){rej(new Error('bad image'))};im.src=u;
+  })}
+  function rotated(img,rot,maxDim){
+    var w=img.naturalWidth,h=img.naturalHeight,sc=Math.min(1,maxDim/Math.max(w,h));
+    var dw=Math.round(w*sc),dh=Math.round(h*sc),swap=rot%180!==0,c=document.createElement('canvas');
+    c.width=swap?dh:dw;c.height=swap?dw:dh;
+    var x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+    x.translate(c.width/2,c.height/2);x.rotate(rot*Math.PI/180);x.drawImage(img,-dw/2,-dh/2,dw,dh);
+    return c;
+  }
+  function setStatus(id,t,err){var e=$(id);e.textContent=t;e.className='status'+(err?' err':'')}
+  function refreshButtons(){
+    $('rot').disabled=!sheetImg;
+    $('read').disabled=!sheetImg||!sample||busy;
+  }
+
+  /* ---------- data sheet ---------- */
+  function paintSheet(){
+    var d=$('sheetDrop');d.textContent='';
+    if(!sheetImg){d.textContent='Click or drop the data sheet photo';return}
+    d.appendChild(rotated(sheetImg,sheetRot,700));
+  }
+  async function takeSheet(f){
+    if(!f)return;
+    if(!/^image\//.test(f.type)){setStatus('sheetStatus','Please choose an image file.',true);return}
+    try{sheetImg=await loadImage(f);sheetRot=0;paintSheet();setStatus('sheetStatus','');refreshButtons()}
+    catch(e){setStatus('sheetStatus','That image could not be opened. Try a JPG or PNG.',true)}
+  }
+  var PROMPT='This photo shows a printed inventory table of tools. It may be rotated or upside down, so read it in its correct orientation. '+
+    'Extract every data row that starts with a serial number (an integer in the first column). Skip section header rows such as "4A - Pliers" and empty rows. '+
+    'For each row return: sn (the serial number as text), name (the description), pn (the part number: use the part number column; if that cell is empty, use the other code column on the same row; if both are empty use an empty string). '+
+    'Copy letters and digits exactly as printed and never guess an unreadable value (leave it empty). '+
+    'Reply with ONLY a JSON array, for example [{"sn":"131","name":"Stripper & Gripper","pn":"4504720394"}].';
+  function toBlob(c){return new Promise(function(res,rej){c.toBlob(function(b){b?res(b):rej(new Error('blob'))},'image/jpeg',.88)})}
+  function copyFor(code){
+    var m={not_granted:'Permission to use Claude was declined, so the photo cannot be read. You can still type rows by hand.',
+      rate_limited:'Too many requests right now. Wait a minute, then press Read data sheet again.',
+      image_rejected:'Claude could not use that photo. Try a different or smaller one.',
+      invalid_json:'The answer could not be turned into a list. Press Read data sheet again.',
+      session_expired:'Your session has expired. Sign in again, then try once more.'};
+    return m[code]||'Something went wrong while reading the photo. Press Read data sheet to try again.';
+  }
+  async function readSheet(){
+    if(!sheetImg||!sample||busy)return;
+    busy=true;refreshButtons();setStatus('sheetStatus','Reading the data sheet. This can take up to a minute…');
+    try{
+      var blob=await toBlob(rotated(sheetImg,sheetRot,1800));
+      var data=await sample.json(PROMPT,{images:[blob]});
+      if(!Array.isArray(data))throw {code:'invalid_json'};
+      rows=data.filter(function(r){return r&&r.sn!==undefined&&String(r.sn).trim()}).map(function(r){
+        return {sn:String(r.sn).trim(),name:String(r.name||'').trim(),pn:String(r.pn||'').trim()}});
+      if(!rows.length){setStatus('sheetStatus','No rows were found. Check the photo is upright and clear, then try again.',true)}
+      else setStatus('sheetStatus',rows.length+' rows found. Check them on the right.');
+      saveRows();renderRows();draw();
+    }catch(e){setStatus('sheetStatus',copyFor(e&&e.code),true)}
+    busy=false;refreshButtons();
+  }
+
+  /* ---------- rows ---------- */
+  function renderRows(){
+    var L=$('list');L.textContent='';
+    if(!rows.length){var n=document.createElement('div');n.className='none';n.textContent='No rows yet. Read the data sheet or add a row.';L.appendChild(n);return}
+    var h=document.createElement('div');h.className='hd';
+    ['S. No','Name','Part number',''].forEach(function(t){var s=document.createElement('span');s.textContent=t;h.appendChild(s)});
+    L.appendChild(h);
+    rows.forEach(function(r,i){
+      var d=document.createElement('div');d.className='r';
+      ['sn','name','pn'].forEach(function(k){
+        var inp=document.createElement('input');inp.value=r[k];inp.setAttribute('aria-label',k==='sn'?'Serial number':k==='name'?'Name':'Part number');
+        inp.oninput=function(){r[k]=inp.value;saveRows();draw()};d.appendChild(inp);
+      });
+      var b=document.createElement('button');b.className='small';b.textContent='×';b.setAttribute('aria-label','Delete row');
+      b.onclick=function(){rows.splice(i,1);saveRows();renderRows();draw()};d.appendChild(b);
+      L.appendChild(d);
+    });
+  }
+
+  /* ---------- tool photo + output ---------- */
+  function paintTool(){
+    var d=$('toolDrop');d.textContent='';
+    if(!toolImg){d.textContent='Click or drop the tool photo';return}
+    d.appendChild(rotated(toolImg,0,600));
+  }
+  async function takeTool(f){
+    if(!f)return;
+    if(!/^image\//.test(f.type)){return}
+    try{toolImg=await loadImage(f);paintTool();draw()}catch(e){}
+  }
+  function parseSerials(s){
+    var out=[];s=s.replace(/\s*[-–]\s*/g,'-');
+    s.split(/[,\s]+/).forEach(function(p){
+      if(!p)return;var m=p.match(/^(\d+)-(\d+)$/);
+      if(m){var a=+m[1],b=+m[2];if(b>=a&&b-a<60)for(var i=a;i<=b;i++)out.push(String(i))}
+      else out.push(p);
+    });
+    return out;
+  }
+  function rr(x,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath()}
+  function wrap(x,text,maxW,maxLines){
+    var words=text.split(/\s+/),lines=[],cur='';
+    for(var i=0;i<words.length;i++){
+      var t=cur?cur+' '+words[i]:words[i];
+      if(x.measureText(t).width<=maxW||!cur)cur=t;else{lines.push(cur);cur=words[i]}
+    }
+    if(cur)lines.push(cur);
+    if(lines.length>maxLines){lines=lines.slice(0,maxLines);var l=lines[maxLines-1];
+      while(l.length>1&&x.measureText(l+'…').width>maxW)l=l.slice(0,-1);lines[maxLines-1]=l+'…'}
+    return lines;
+  }
+  function draw(){
+    var ids=parseSerials($('serials').value.trim());
+    var show=toolImg&&ids.length;
+    $('outWrap').hidden=!show;$('outEmpty').hidden=!!show;
+    if(!show)return;
+    var nw=toolImg.naturalWidth,nh=toolImg.naturalHeight,W=Math.min(1600,nw),H=Math.round(nh*W/nw);
+    var c=$('out'),x=c.getContext('2d');c.width=W;c.height=H;x.drawImage(toolImg,0,0,W,H);
+    var per=Math.min(ids.length,6),mg=W*.016,gap=W*.008,bw=(W-2*mg-gap*(per-1))/per,bh=W*.092,p=bw*.05;
+    var f1=W*.0156,f2=W*.0125,fam='"Barlow",system-ui,sans-serif';
+    ids.forEach(function(id,i){
+      var r=Math.floor(i/per),k=i%per,bx=mg+k*(bw+gap),by=mg+r*(bh+gap);
+      var row=rows.filter(function(q){return String(q.sn).trim().toLowerCase()===id.toLowerCase()})[0];
+      x.fillStyle='#000';rr(x,bx,by,bw,bh,W*.008);x.fill();
+      x.lineWidth=Math.max(1.5,W*.0013);x.strokeStyle='#fff';x.stroke();
+      x.fillStyle='#fff';x.textBaseline='alphabetic';
+      var y=by+p+f1;
+      x.font='600 '+f1+'px '+fam;x.fillText('S. No: '+id,bx+p,y);
+      x.font='400 '+f2+'px '+fam;y+=f2*1.55;
+      x.fillText('PN: '+(row&&row.pn?row.pn:'—'),bx+p,y);
+      y+=f2*1.5;
+      var name=row?row.name:'Not in the data sheet';
+      wrap(x,name,bw-2*p,2).forEach(function(line){x.fillText(line,bx+p,y);y+=f2*1.3});
+    });
+  }
+
+  /* ---------- download ---------- */
+  async function download(){
+    var c=$('out');setStatus('dlStatus','');
+    if(!downloads){setStatus('dlStatus','Saving is not available in this view. Press and hold (or right-click) the picture to save it.',true);return}
+    try{
+      var blob=await new Promise(function(res,rej){c.toBlob(function(b){b?res(b):rej()},'image/png')});
+      await downloads.save({filename:'tool-labels.png',data:blob});
+    }catch(e){if(!e||e.code!=='cancelled')setStatus('dlStatus','The picture was not saved. Press Download picture to try again.',true)}
+  }
+
+  /* ---------- wiring ---------- */
+  function dropZone(zone,input,handler){
+    zone.onclick=function(){input.click()};
+    zone.onkeydown=function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click()}};
+    input.onchange=function(e){handler(e.target.files[0])};
+    ['dragover','dragenter'].forEach(function(ev){zone.addEventListener(ev,function(e){e.preventDefault();zone.classList.add('over')})});
+    ['dragleave','drop'].forEach(function(ev){zone.addEventListener(ev,function(){zone.classList.remove('over')})});
+    zone.addEventListener('drop',function(e){e.preventDefault();handler(e.dataTransfer.files[0])});
+  }
+  dropZone($('sheetDrop'),$('sheetFile'),takeSheet);
+  dropZone($('toolDrop'),$('toolFile'),takeTool);
+  $('rot').onclick=function(){sheetRot=(sheetRot+90)%360;paintSheet()};
+  $('read').onclick=readSheet;
+  $('add').onclick=function(){rows.push({sn:'',name:'',pn:''});saveRows();renderRows();var L=$('list');L.scrollTop=L.scrollHeight};
+  $('clear').onclick=function(){if(rows.length&&!confirm('Remove all rows from the list?'))return;rows=[];saveRows();renderRows();draw()};
+  $('serials').oninput=draw;
+  $('dl').onclick=download;
+  renderRows();refreshButtons();
+})();
+</script>
+</body>
+</html>
