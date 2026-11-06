@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tool Label Maker</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
 <style>
 :root{--bg:#eceff1;--surface:#fff;--ink:#14181c;--muted:#5b6670;--line:#cfd6db;--accent:#f5b301;--accent-ink:#14181c;--danger:#c0392b;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12161a;--surface:#1b2127;--ink:#e9eef2;--muted:#95a1ab;--line:#2c353d;--danger:#ff7b6b;color-scheme:dark}}
@@ -105,7 +106,10 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   var rows=[],sheetImg=null,sheetRot=0,toolImg=null,sample=null,downloads=null,busy=false;
 
   /* ---------- storage (optional) ---------- */
-  try{var s=localStorage.getItem('tlm_rows');if(s)rows=JSON.parse(s)||[]}catch(e){rows=[]}
+  try{
+    var s=localStorage.getItem('tlm_rows');
+    if(s)rows=(function(list){var out=[];(Array.isArray(list)?list:[]).forEach(function(r){var n=normalizeRow(r);if(n.sn)out.push(n)});return out})(JSON.parse(s)||[]);
+  }catch(e){rows=[]}
   function saveRows(){try{localStorage.setItem('tlm_rows',JSON.stringify(rows))}catch(e){}}
 
   /* ---------- capabilities ---------- */
@@ -114,7 +118,6 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
       sample=await claude.use('sample');downloads=await claude.use('downloads');
       if(sample&&sample.limits){try{var l=await sample.limits();if(!l.images)sample=null}catch(e){sample=null}}
     }}catch(e){sample=null}
-    if(!sample){$('sheetStatus').textContent='Reading a photo needs Claude, which is not available here. Type the rows by hand instead.';$('sheetStatus').className='status err'}
     refreshButtons();
   })();
 
@@ -123,6 +126,31 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     var u=URL.createObjectURL(file),im=new Image();
     im.onload=function(){res(im)};im.onerror=function(){rej(new Error('bad image'))};im.src=u;
   })}
+  function valueByKey(row,names){
+    if(!row||typeof row!=='object')return '';
+    var keys=Object.keys(row);
+    for(var n=0;n<names.length;n++){
+      var wanted=names[n].toLowerCase().replace(/[^a-z0-9]/g,'');
+      for(var i=0;i<keys.length;i++){
+        var actual=keys[i].toLowerCase().replace(/[^a-z0-9]/g,'');
+        if(actual===wanted||actual.indexOf(wanted)>=0||wanted.indexOf(actual)>=0){
+          if(row[keys[i]]!==undefined&&row[keys[i]]!==null&&String(row[keys[i]]).trim())return String(row[keys[i]]).trim();
+        }
+      }
+    }
+    return '';
+  }
+  function normalizeRow(row){
+    return {
+      sn:valueByKey(row,['sn','sno','s.number','serial','serial number','serialNumber']),
+      pn:valueByKey(row,['pn','part number','partNumber','part','part no','code']),
+      name:valueByKey(row,['name','description','tool name','toolName','item'])
+    };
+  }
+  function normalizeRows(data){
+    var list=Array.isArray(data)?data:(data&&Array.isArray(data.rows)?data.rows:(data&&Array.isArray(data.data)?data.data:[]));
+    return list.map(normalizeRow).filter(function(row){return row.sn});
+  }
   function rotated(img,rot,maxDim){
     var w=img.naturalWidth,h=img.naturalHeight,sc=Math.min(1,maxDim/Math.max(w,h));
     var dw=Math.round(w*sc),dh=Math.round(h*sc),swap=rot%180!==0,c=document.createElement('canvas');
@@ -134,7 +162,7 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   function setStatus(id,t,err){var e=$(id);e.textContent=t;e.className='status'+(err?' err':'')}
   function refreshButtons(){
     $('rot').disabled=!sheetImg;
-    $('read').disabled=!sheetImg||!sample||busy;
+    $('read').disabled=!sheetImg||busy;
   }
 
   /* ---------- data sheet ---------- */
@@ -150,8 +178,9 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     catch(e){setStatus('sheetStatus','That image could not be opened. Try a JPG or PNG.',true)}
   }
   var PROMPT='This photo shows a printed inventory table of tools. It may be rotated or upside down, so read it in its correct orientation. '+
-    'Extract every data row that starts with a serial number (an integer in the first column). Skip section header rows such as "4A - Pliers" and empty rows. '+
-    'For each row return: sn (the serial number as text), name (the description), pn (the part number: use the part number column; if that cell is empty, use the other code column on the same row; if both are empty use an empty string). '+
+    'Use the table in strict column order: column 1 is the serial number (sn), column 2 is the tool name (name), and column 3 is the part number (pn). '+
+    'Extract every data row whose first column starts with an integer. Skip section header rows and empty rows. '+
+    'For each row return only sn, name, and pn. Do not move values between columns or use text from an adjacent column. '+
     'Copy letters and digits exactly as printed and never guess an unreadable value (leave it empty). '+
     'Reply with ONLY a JSON array, for example [{"sn":"131","name":"Stripper & Gripper","pn":"4504720394"}].';
   function toBlob(c){return new Promise(function(res,rej){c.toBlob(function(b){b?res(b):rej(new Error('blob'))},'image/jpeg',.88)})}
@@ -163,19 +192,76 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
       session_expired:'Your session has expired. Sign in again, then try once more.'};
     return m[code]||'Something went wrong while reading the photo. Press Read data sheet to try again.';
   }
+  function parseOcrRows(text){
+    var lines=text.replace(/\r/g,'').split('\n'),found=[];
+    lines.forEach(function(line){
+      var cleaned=line.trim().replace(/^[|]\s*/, '');
+      var match=cleaned.match(/^(\d{1,6})\b\s*(.*)$/);
+      if(!match)return;
+      var rest=match[2].trim();
+      var pn='',name=rest;
+      var columns=rest.split(/\s{2,}|\t{1,}|\|/).map(function(value){return value.trim()}).filter(Boolean);
+      if(columns.length>=2){
+        name=columns.slice(0,-1).join(' ').trim();
+        pn=columns[columns.length-1].trim();
+      }else{
+        var tokens=rest.match(/\S+/g)||[];
+        var pnIndex=-1;
+        for(var i=tokens.length-1;i>=0;i--){
+          if(tokens[i].match(/^[A-Z0-9][A-Z0-9.\-/]{3,}$/i)){
+            pnIndex=i;
+            break;
+          }
+        }
+        if(pnIndex>0){
+          pn=tokens[pnIndex];
+          name=tokens.slice(0,pnIndex).join(' ').trim();
+        }
+      }
+      found.push({sn:match[1],name:name,pn:pn});
+    });
+    return found;
+  }
   async function readSheet(){
-    if(!sheetImg||!sample||busy)return;
+    if(!sheetImg||busy)return;
     busy=true;refreshButtons();setStatus('sheetStatus','Reading the data sheet. This can take up to a minute…');
     try{
       var blob=await toBlob(rotated(sheetImg,sheetRot,1800));
-      var data=await sample.json(PROMPT,{images:[blob]});
-      if(!Array.isArray(data))throw {code:'invalid_json'};
-      rows=data.filter(function(r){return r&&r.sn!==undefined&&String(r.sn).trim()}).map(function(r){
-        return {sn:String(r.sn).trim(),name:String(r.name||'').trim(),pn:String(r.pn||'').trim()}});
+      var data=null;
+      if(sample&&typeof sample.json==='function'){
+        try{
+          data=await sample.json(PROMPT,{images:[blob]});
+        }catch(e){
+          data=null;
+        }
+      }
+      if(!Array.isArray(data)){
+        if(!window.Tesseract)throw new Error('OCR is unavailable because the internet connection or OCR library could not be loaded.');
+        var canvas=rotated(sheetImg,sheetRot,1800);
+        setStatus('sheetStatus','Running text recognition. This may take a minute…');
+        var result=await Tesseract.recognize(canvas,'eng',{
+          logger:function(info){
+            if(info.status==='recognizing text'&&typeof info.progress==='number'){
+              setStatus('sheetStatus','Reading text: '+Math.round(info.progress*100)+'%');
+            }
+          }
+        });
+        data=parseOcrRows(result.data&&result.data.text?result.data.text:'');
+      }
+      if(data&&typeof data==='object'&&!Array.isArray(data)){
+        if(Array.isArray(data.rows))data=data.rows;
+        else if(Array.isArray(data.data))data=data.data;
+      }
+      rows=normalizeRows(data);
       if(!rows.length){setStatus('sheetStatus','No rows were found. Check the photo is upright and clear, then try again.',true)}
       else setStatus('sheetStatus',rows.length+' rows found. Check them on the right.');
       saveRows();renderRows();draw();
-    }catch(e){setStatus('sheetStatus',copyFor(e&&e.code),true)}
+    }catch(e){
+      var message=e&&e.message&&e.message.indexOf('OCR is unavailable')===0
+        ?e.message
+        :copyFor(e&&e.code);
+      setStatus('sheetStatus',message,true)
+    }
     busy=false;refreshButtons();
   }
 
@@ -230,6 +316,24 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
       while(l.length>1&&x.measureText(l+'…').width>maxW)l=l.slice(0,-1);lines[maxLines-1]=l+'…'}
     return lines;
   }
+  function serialKey(value){
+    var text=String(value==null?'':value).toLowerCase().trim();
+    var match=text.match(/(?:^|[^0-9])(\d{1,8})(?:[^0-9]|$)/);
+    if(match)return match[1].replace(/^0+(?=\d)/,'');
+    return text.replace(/[^a-z0-9]/g,'').replace(/^0+(?=\w)/,'');
+  }
+  function findRowBySerial(serial){
+    var wanted=serialKey(serial);
+    if(!wanted)return null;
+    var exact=null,fuzzy=null;
+    for(var i=0;i<rows.length;i++){
+      var candidate=normalizeRow(rows[i]);
+      var found=serialKey(candidate.sn);
+      if(found===wanted){exact=candidate;break}
+      if(!fuzzy&&wanted&&found&&(found.indexOf(wanted)>=0||wanted.indexOf(found)>=0))fuzzy=candidate;
+    }
+    return exact||fuzzy;
+  }
   function draw(){
     var ids=parseSerials($('serials').value.trim());
     var show=toolImg&&ids.length;
@@ -237,21 +341,46 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     if(!show)return;
     var nw=toolImg.naturalWidth,nh=toolImg.naturalHeight,W=Math.min(1600,nw),H=Math.round(nh*W/nw);
     var c=$('out'),x=c.getContext('2d');c.width=W;c.height=H;x.drawImage(toolImg,0,0,W,H);
-    var per=Math.min(ids.length,6),mg=W*.016,gap=W*.008,bw=(W-2*mg-gap*(per-1))/per,bh=W*.092,p=bw*.05;
-    var f1=W*.0156,f2=W*.0125,fam='"Barlow",system-ui,sans-serif';
+    var single=ids.length===1;
+    var per=single?1:Math.min(ids.length,6);
+    var mg=W*(single?.07:.016),gap=W*(single?.03:.008);
+    var bw=single?W*.86:(W-2*mg-gap*(per-1))/per;
+    var bh=single?W*.30:W*.12;
+    var f1=single?W*.046:Math.max(18,W*.016);
+    var f2=single?W*.044:Math.max(16,W*.013);
+    var fam='"Barlow",Arial,sans-serif';
     ids.forEach(function(id,i){
       var r=Math.floor(i/per),k=i%per,bx=mg+k*(bw+gap),by=mg+r*(bh+gap);
-      var row=rows.filter(function(q){return String(q.sn).trim().toLowerCase()===id.toLowerCase()})[0];
+      var key=serialKey(id);
+      var row=findRowBySerial(id);
       x.fillStyle='#000';rr(x,bx,by,bw,bh,W*.008);x.fill();
-      x.lineWidth=Math.max(1.5,W*.0013);x.strokeStyle='#fff';x.stroke();
+      x.lineWidth=Math.max(1.5,W*.001);x.strokeStyle='#777';x.stroke();
       x.fillStyle='#fff';x.textBaseline='alphabetic';
-      var y=by+p+f1;
-      x.font='600 '+f1+'px '+fam;x.fillText('S. No: '+id,bx+p,y);
-      x.font='400 '+f2+'px '+fam;y+=f2*1.55;
-      x.fillText('PN: '+(row&&row.pn?row.pn:'—'),bx+p,y);
-      y+=f2*1.5;
+      x.textAlign='center';
       var name=row?row.name:'Not in the data sheet';
-      wrap(x,name,bw-2*p,2).forEach(function(line){x.fillText(line,bx+p,y);y+=f2*1.3});
+      if(single){
+        var cx=bx+bw/2,centerY=by+bh*.12;
+        x.font='400 '+f1+'px '+fam;
+        x.fillText('S.no: '+id,cx,centerY+f1);
+        x.fillText('pn: '+(row&&row.pn?row.pn:'—'),cx,centerY+f1*2);
+        x.font='400 '+f2+'px '+fam;
+        var nameLines=wrap(x,'Name: '+name,bw*.88,4);
+        nameLines.forEach(function(line,n){x.fillText(line,cx,centerY+f2*(n+3));});
+      }else{
+        var px=bw*.05;
+        var y=by+px+f1;
+        x.textAlign='left';
+        x.font='600 '+f1+'px '+fam;x.fillText('S.no: '+id,bx+px,y);
+        x.font='400 '+f2+'px '+fam;y+=f2*1.55;
+        x.fillText('pn: '+(row&&row.pn?row.pn:'—'),bx+px,y);
+        y+=f2*1.5;
+        x.font='600 '+f2+'px '+fam;
+        x.fillText('Name:',bx+px,y);
+        y+=f2*1.15;
+        x.font='400 '+f2+'px '+fam;
+        wrap(x,name,bw-2*px,3).forEach(function(line){x.fillText(line,bx+px,y);y+=f2*1.25});
+        x.textAlign='left';
+      }
     });
   }
 
