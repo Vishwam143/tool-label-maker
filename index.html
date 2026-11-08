@@ -86,6 +86,9 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
       <div>
         <div class="drop" id="toolDrop" tabindex="0" role="button" aria-label="Choose the tool photo">Click or drop the tool photo</div>
         <input id="toolFile" type="file" accept="image/*" capture="environment" hidden>
+        <div class="row">
+          <button id="toolCamera" class="primary" type="button">Use camera</button>
+        </div>
       </div>
       <div>
         <p class="note">Each tool receives its S. No., name and part number from the matching row above.</p>
@@ -105,6 +108,16 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
       <div class="status" id="dlStatus" role="status"></div>
     </div>
   </section>
+</div>
+
+<div class="camera-modal" id="toolCameraModal" role="dialog" aria-modal="true" aria-label="Tool photo camera">
+  <div class="camera-box">
+    <video id="toolCameraVideo" autoplay playsinline></video>
+    <div class="camera-actions">
+      <button id="toolCameraCapture" class="primary" type="button">Capture photo</button>
+      <button id="toolCameraClose" type="button">Close</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -560,17 +573,18 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   }
 
   /* ---------- wiring ---------- */
-  function stopCamera(){
+  function stopToolCamera(){
     if(cameraStream){
       cameraStream.getTracks().forEach(function(track){track.stop()});
       cameraStream=null;
     }
-    $('cameraVideo').srcObject=null;
-    $('cameraModal').classList.remove('open');
+    var video=$('toolCameraVideo');
+    video.srcObject=null;
+    $('toolCameraModal').classList.remove('open');
   }
-  async function openCamera(){
+  async function openToolCamera(){
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-      setStatus('sheetStatus','Live camera is not supported by this browser. Use the upload button instead.',true);
+      alert('Live camera is not supported by this browser. Use the upload button instead.');
       return;
     }
     try{
@@ -578,28 +592,26 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
         video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},
         audio:false
       });
-      var video=$('cameraVideo');
+      var video=$('toolCameraVideo');
       video.srcObject=cameraStream;
       await video.play();
-      $('cameraModal').classList.add('open');
-      setStatus('sheetStatus','Align the data sheet inside the camera view, then press Capture & scan.');
+      $('toolCameraModal').classList.add('open');
     }catch(e){
-      stopCamera();
-      setStatus('sheetStatus','Camera permission was denied or no camera is available. Use the upload button instead.',true);
+      stopToolCamera();
+      alert('Camera permission was denied or no camera is available. Use the upload button instead.');
     }
   }
-  async function captureAndScan(){
-    var video=$('cameraVideo');
+  async function captureToolPhoto(){
+    var video=$('toolCameraVideo');
     if(!video.videoWidth||!video.videoHeight)return;
     var canvas=document.createElement('canvas');
     canvas.width=video.videoWidth;
     canvas.height=video.videoHeight;
     canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
     var blob=await new Promise(function(resolve){canvas.toBlob(resolve,'image/jpeg',.92)});
-    stopCamera();
+    stopToolCamera();
     if(!blob)return;
-    var file=new File([blob],'data-sheet-camera.jpg',{type:'image/jpeg'});
-    await takeSheet(file);
+    await takeTool(new File([blob],'tool-camera.jpg',{type:'image/jpeg'}));
   }
   function dropZone(zone,input,handler){
     zone.onclick=function(){input.click()};
@@ -618,6 +630,9 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   $('clear').onclick=function(){if(rows.length&&!confirm('Remove all rows from the list?'))return;rows=[];saveRows();renderRows();draw()};
   $('dl').onclick=download;
   $('print').onclick=function(){window.print()};
+  $('toolCamera').onclick=openToolCamera;
+  $('toolCameraCapture').onclick=captureToolPhoto;
+  $('toolCameraClose').onclick=stopToolCamera;
   renderRows();refreshButtons();
 })();
 </script>
