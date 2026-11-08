@@ -81,11 +81,11 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
 
   <section class="step" aria-labelledby="h2">
     <h2 id="h2">2. Tool photo</h2>
-    <p class="hint">Upload the photo containing the tools in the same order as the rows above.</p>
+    <p class="hint">Upload one or multiple photos. Each photo will become one page in the PDF, in the same order as the tool rows.</p>
     <div class="cols">
       <div>
-        <div class="drop" id="toolDrop" tabindex="0" role="button" aria-label="Choose the tool photo">Click or drop the tool photo</div>
-        <input id="toolFile" type="file" accept="image/*" capture="environment" hidden>
+        <div class="drop" id="toolDrop" tabindex="0" role="button" aria-label="Choose tool photos">Click or drop tool photos</div>
+        <input id="toolFile" type="file" accept="image/*" capture="environment" multiple hidden>
         <div class="row">
           <button id="toolCamera" class="primary" type="button">Use camera</button>
         </div>
@@ -104,6 +104,8 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
       <div class="row">
         <button id="dl" class="primary">Download picture</button>
         <button id="print" class="primary">Print labelled photo</button>
+        <button id="downloadPdf" class="primary">Download PDF</button>
+        <button id="sharePdf">Share / Upload PDF</button>
       </div>
       <div class="status" id="dlStatus" role="status"></div>
     </div>
@@ -123,7 +125,7 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
 <script>
 (function(){
   var $=function(id){return document.getElementById(id)};
-  var rows=[],sheetImg=null,sheetRot=0,toolImg=null,sample=null,downloads=null,busy=false,cameraStream=null;
+  var rows=[],sheetImg=null,sheetRot=0,toolImg=null,toolPhotos=[],labelledCanvases=[],sample=null,downloads=null,busy=false,cameraStream=null;
 
   /* ---------- storage (optional) ---------- */
   try{
@@ -434,7 +436,18 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   async function takeTool(f){
     if(!f)return;
     if(!/^image\//.test(f.type)){return}
-    try{toolImg=await loadImage(f);paintTool();draw()}catch(e){}
+    try{toolImg=await loadImage(f);toolPhotos=[toolImg];paintTool();draw()}catch(e){}
+  }
+  async function takeTools(files){
+    if(!files||!files.length)return;
+    var images=[];
+    for(var i=0;i<files.length;i++){
+      if(/^image\//.test(files[i].type)){
+        try{images.push(await loadImage(files[i]))}catch(e){}
+      }
+    }
+    if(!images.length)return;
+    toolPhotos=images;toolImg=images[0];paintTool();draw();
   }
   function parseSerials(s){
     var out=[];s=s.replace(/\s*[-–]\s*/g,'-');
@@ -475,87 +488,135 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     }
     return exact||fuzzy;
   }
+  function createLabelledCanvas(img,rowIndex){
+    var nw=img.naturalWidth||img.width,nh=img.naturalHeight||img.height;
+    var W=Math.min(1600,nw),H=Math.round(nh*W/nw);
+    var c=document.createElement('canvas'),x=c.getContext('2d');
+    c.width=W;c.height=H;x.drawImage(img,0,0,W,H);
+    var validRows=rows.filter(function(row){return serialKey(row.sn)});
+    var row=validRows[rowIndex];
+    if(!row&&validRows.length===1)row=validRows[0];
+    if(!row)return c;
+    var id=String(row.sn).trim(),name=row.name||'',pn=row.pn||'—';
+    var bx=W*.07,bw=W*.86,bh=W*.20,singleY=H*.05;
+    var nameH=W*.115,nameY=singleY+bh-W*.012,nameW=bw*.78,nameX=W/2-nameW/2;
+    x.shadowColor='rgba(0,0,0,.35)';x.shadowBlur=W*.012;x.shadowOffsetY=W*.006;
+    x.fillStyle='#000';rr(x,bx,singleY,bw,bh,W*.018);x.fill();
+    x.shadowColor='transparent';x.fillStyle='#fff';x.textAlign='center';x.textBaseline='middle';
+    x.font='400 '+(W*.052)+'px "Barlow",Arial,sans-serif';
+    x.fillText('S.no: '+id,W/2,singleY+bh*.31);
+    x.fillText('pn: '+pn,W/2,singleY+bh*.68);
+    x.shadowColor='rgba(0,0,0,.35)';x.shadowBlur=W*.012;x.shadowOffsetY=W*.006;
+    x.fillStyle='#111';rr(x,nameX,nameY,nameW,nameH,W*.012);x.fill();
+    x.shadowColor='transparent';x.fillStyle='#fff';
+    var nameFont=W*.043,nameLines=wrap(x,'Name: '+name,nameW*.92,3),lineGap=nameFont*1.08;
+    x.font='400 '+nameFont+'px "Barlow",Arial,sans-serif';
+    nameLines.forEach(function(line,n){x.fillText(line,W/2,nameY+nameH*.25+n*lineGap)});
+    return c;
+  }
   function draw(){
-    var ids=rows.map(function(row){return serialKey(row.sn)?String(row.sn).trim():''}).filter(Boolean);
-    var show=toolImg&&ids.length;
+    var validRows=rows.filter(function(row){return serialKey(row.sn)});
+    var photos=toolPhotos.length?toolPhotos:(toolImg?[toolImg]:[]);
+    var show=photos.length&&validRows.length;
     $('outWrap').hidden=!show;$('outEmpty').hidden=!!show;
+    labelledCanvases=[];
     if(!show)return;
-    var nw=toolImg.naturalWidth,nh=toolImg.naturalHeight,W=Math.min(1600,nw),H=Math.round(nh*W/nw);
-    var c=$('out'),x=c.getContext('2d');c.width=W;c.height=H;x.drawImage(toolImg,0,0,W,H);
-    var single=ids.length===1;
-    var per=single?1:Math.min(ids.length,6);
-    var mg=W*(single?.07:.016),gap=W*(single?.03:.008);
-    var bw=single?W*.86:(W-2*mg-gap*(per-1))/per;
-    var bh=single?W*.30:W*.12;
-    var f1=single?W*.046:Math.max(18,W*.016);
-    var f2=single?W*.044:Math.max(16,W*.013);
-    var fam='"Barlow",Arial,sans-serif';
-    ids.forEach(function(id,i){
-      var r=Math.floor(i/per),k=i%per,bx=mg+k*(bw+gap),by=mg+r*(bh+gap);
-      var key=serialKey(id);
-      var row=findRowBySerial(id);
-      x.fillStyle='#000';rr(x,bx,by,bw,bh,W*.008);x.fill();
-      x.lineWidth=Math.max(1.5,W*.001);x.strokeStyle='#777';x.stroke();
-      x.fillStyle='#fff';x.textBaseline='alphabetic';
-      x.textAlign='center';
-      var name=row?row.name:'Not in the data sheet';
-      if(single){
-        var cx=bx+bw/2;
-        var singleH=W*.20;
-        var singleY=mg*.55;
-        var nameH=W*.115;
-        var nameY=singleY+singleH-W*.012;
-        var nameW=bw*.78;
-        var nameX=cx-nameW/2;
-
-        x.shadowColor='rgba(0,0,0,.35)';
-        x.shadowBlur=W*.012;
-        x.shadowOffsetY=W*.006;
-        x.fillStyle='#000';
-        rr(x,bx,singleY,bw,singleH,W*.018);x.fill();
-        x.shadowColor='transparent';
-
-        x.fillStyle='#fff';
-        x.textAlign='center';
-        x.textBaseline='middle';
-        x.font='400 '+(W*.052)+'px '+fam;
-        x.fillText('S.no: '+id,cx,singleY+singleH*.31);
-        x.font='400 '+(W*.052)+'px '+fam;
-        x.fillText('pn: '+(row&&row.pn?row.pn:'—'),cx,singleY+singleH*.68);
-
-        x.shadowColor='rgba(0,0,0,.35)';
-        x.shadowBlur=W*.012;
-        x.shadowOffsetY=W*.006;
-        x.fillStyle='#111';
-        rr(x,nameX,nameY,nameW,nameH,W*.012);x.fill();
-        x.shadowColor='transparent';
-
-        x.fillStyle='#fff';
-        var nameFont=W*.043;
-        var nameLines=wrap(x,'Name: '+name,nameW*.92,3);
-        x.font='400 '+nameFont+'px '+fam;
-        var firstY=nameY+nameH*.25;
-        var lineGap=nameFont*1.08;
-        nameLines.forEach(function(line,n){x.fillText(line,cx,firstY+n*lineGap)});
-      }else{
-        var px=bw*.05;
-        var y=by+px+f1;
-        x.textAlign='left';
-        x.font='600 '+f1+'px '+fam;x.fillText('S.no: '+id,bx+px,y);
-        x.font='400 '+f2+'px '+fam;y+=f2*1.55;
-        x.fillText('pn: '+(row&&row.pn?row.pn:'—'),bx+px,y);
-        y+=f2*1.5;
-        x.font='600 '+f2+'px '+fam;
-        x.fillText('Name:',bx+px,y);
-        y+=f2*1.15;
-        x.font='400 '+f2+'px '+fam;
-        wrap(x,name,bw-2*px,3).forEach(function(line){x.fillText(line,bx+px,y);y+=f2*1.25});
-        x.textAlign='left';
-      }
-    });
+    photos.forEach(function(img,index){labelledCanvases.push(createLabelledCanvas(img,index))});
+    var c=$('out'),preview=labelledCanvases[0];
+    c.width=preview.width;c.height=preview.height;c.getContext('2d').drawImage(preview,0,0);
   }
 
   /* ---------- download ---------- */
+  function concatPdfParts(parts){
+    var total=parts.reduce(function(sum,part){return sum+part.length},0);
+    var result=new Uint8Array(total),offset=0;
+    parts.forEach(function(part){result.set(part,offset);offset+=part.length});
+    return result;
+  }
+  async function createLabelledPdf(){
+    var canvases=labelledCanvases.length?labelledCanvases:[$('out')];
+    var pageCount=Math.max(1,canvases.length);
+    var encoder=new TextEncoder(),chunks=[],size=0,offsets=[0];
+
+    function appendBytes(bytes){
+      chunks.push(bytes);size+=bytes.length;
+    }
+    function appendText(text){appendBytes(encoder.encode(text))}
+    function addObject(number,textBytes){
+      offsets[number]=size;
+      appendText(number+' 0 obj\n');
+      appendBytes(textBytes);
+      appendText('\nendobj\n');
+    }
+
+    appendText('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+    addObject(1,encoder.encode('<< /Type /Catalog /Pages 2 0 R >>'));
+    var kids=[];
+    for(var p=0;p<pageCount;p++)kids.push((3+p*3)+' 0 R');
+    addObject(2,encoder.encode('<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+pageCount+' >>'));
+
+    for(var i=0;i<pageCount;i++){
+      var canvas=canvases[i];
+      var jpegBlob=await new Promise(function(resolve,reject){
+        canvas.toBlob(function(blob){blob?resolve(blob):reject(new Error('PDF image creation failed'))},'image/jpeg',.95);
+      });
+      var jpeg=new Uint8Array(await jpegBlob.arrayBuffer());
+      var portrait=canvas.height>=canvas.width;
+      var pageW=portrait?595.28:841.89,pageH=portrait?841.89:595.28,margin=20;
+      var scale=Math.min((pageW-margin*2)/canvas.width,(pageH-margin*2)/canvas.height);
+      var imageW=canvas.width*scale,imageH=canvas.height*scale;
+      var imageX=(pageW-imageW)/2,imageY=(pageH-imageH)/2;
+      var pageObj=3+i*3,imageObj=4+i*3,contentObj=5+i*3;
+      var page='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+pageW.toFixed(2)+' '+pageH.toFixed(2)+'] /Resources << /XObject << /Im0 '+imageObj+' 0 R >> >> /Contents '+contentObj+' 0 R >>';
+      addObject(pageObj,encoder.encode(page));
+
+      offsets[imageObj]=size;
+      appendText(imageObj+' 0 obj\n<< /Type /XObject /Subtype /Image /Width '+canvas.width+' /Height '+canvas.height+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+jpeg.length+' >>\nstream\n');
+      appendBytes(jpeg);
+      appendText('\nendstream\nendobj\n');
+
+      var content='q '+imageW.toFixed(2)+' 0 0 '+imageH.toFixed(2)+' '+imageX.toFixed(2)+' '+imageY.toFixed(2)+' cm /Im0 Do Q';
+      addObject(contentObj,encoder.encode('<< /Length '+content.length+' >>\nstream\n'+content+'\nendstream'));
+    }
+
+    var xrefOffset=size;
+    var objectCount=2+pageCount*3;
+    appendText('xref\n0 '+(objectCount+1)+'\n0000000000 65535 f \n');
+    for(var n=1;n<=objectCount;n++)appendText(String(offsets[n]||0).padStart(10,'0')+' 00000 n \n');
+    appendText('trailer\n<< /Size '+(objectCount+1)+' /Root 1 0 R >>\nstartxref\n'+xrefOffset+'\n%%EOF');
+
+    return new Blob(chunks,{type:'application/pdf'});
+  }
+  async function downloadPdf(){
+    setStatus('dlStatus','Creating PDF…');
+    try{
+      var blob=await createLabelledPdf(),url=URL.createObjectURL(blob);
+      var link=document.createElement('a');
+      link.href=url;link.download='tool-labels.pdf';
+      document.body.appendChild(link);link.click();link.remove();
+      setTimeout(function(){URL.revokeObjectURL(url)},1000);
+      setStatus('dlStatus','PDF downloaded with '+labelledCanvases.length+' page'+(labelledCanvases.length===1?'':'s')+'.');
+    }catch(e){setStatus('dlStatus','The PDF could not be created.',true)}
+  }
+  async function sharePdf(){
+    setStatus('dlStatus','Creating PDF for sharing…');
+    try{
+      var blob=await createLabelledPdf(),file=new File([blob],'tool-labels.pdf',{type:'application/pdf'});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:'Tool Labels',text:'Labelled tool photo PDF'});
+        setStatus('dlStatus','PDF shared.');
+      }else{
+        var url=URL.createObjectURL(blob),link=document.createElement('a');
+        link.href=url;link.download='tool-labels.pdf';
+        document.body.appendChild(link);link.click();link.remove();
+        setTimeout(function(){URL.revokeObjectURL(url)},1000);
+        setStatus('dlStatus','File sharing is unavailable. The PDF was downloaded instead.',true);
+      }
+    }catch(e){
+      if(e&&e.name==='AbortError')setStatus('dlStatus','PDF sharing cancelled.');
+      else setStatus('dlStatus','The PDF could not be shared.',true);
+    }
+  }
   async function download(){
     var c=$('out');setStatus('dlStatus','');
     try{
@@ -617,19 +678,24 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     zone.onclick=function(){input.click()};
     zone.onkeydown=function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click()}};
     input.onchange=function(e){
-      var file=e.target.files[0];
+      var files=Array.prototype.slice.call(e.target.files||[]);
       e.target.value='';
-      if(file)handler(file);
+      if(files&&files.length)handler(files.length===1?files[0]:files);
     };
     ['dragover','dragenter'].forEach(function(ev){zone.addEventListener(ev,function(e){e.preventDefault();zone.classList.add('over')})});
     ['dragleave','drop'].forEach(function(ev){zone.addEventListener(ev,function(){zone.classList.remove('over')})});
-    zone.addEventListener('drop',function(e){e.preventDefault();handler(e.dataTransfer.files[0])});
+    zone.addEventListener('drop',function(e){e.preventDefault();var files=e.dataTransfer.files;if(files.length)handler(files.length===1?files[0]:files)});
   }
-  dropZone($('toolDrop'),$('toolFile'),takeTool);
+  dropZone($('toolDrop'),$('toolFile'),function(files){
+    if(files&&typeof files.length==='number'){takeTools(files)}
+    else{takeTool(files)}
+  });
   $('add').onclick=function(){rows.push({sn:'',name:'',pn:''});saveRows();renderRows();var L=$('list');L.scrollTop=L.scrollHeight};
   $('clear').onclick=function(){if(rows.length&&!confirm('Remove all rows from the list?'))return;rows=[];saveRows();renderRows();draw()};
   $('dl').onclick=download;
   $('print').onclick=function(){window.print()};
+  $('downloadPdf').onclick=downloadPdf;
+  $('sharePdf').onclick=sharePdf;
   $('toolCamera').onclick=openToolCamera;
   $('toolCameraCapture').onclick=captureToolPhoto;
   $('toolCameraClose').onclick=stopToolCamera;
