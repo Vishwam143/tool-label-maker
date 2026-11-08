@@ -12,8 +12,12 @@
 :root[data-theme="dark"]{--bg:#12161a;--surface:#1b2127;--ink:#e9eef2;--muted:#95a1ab;--line:#2c353d;--danger:#ff7b6b;color-scheme:dark}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *,*::before,*::after{box-sizing:inherit}
-body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 "Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-.wrap{max-width:980px;margin:0 auto;padding:24px 16px 56px}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 "Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;position:relative;min-height:100vh;overflow-x:hidden}
+body::before,body::after{content:"";position:fixed;z-index:0;pointer-events:none;border-radius:50%;animation:bubbleFloat 18s linear infinite}
+body::before{width:34px;height:34px;left:6%;bottom:-60px;background:rgba(245,179,1,.18);border:1px solid rgba(245,179,1,.38);box-shadow:18vw 8vh 0 12px rgba(245,179,1,.10),38vw 72vh 0 6px rgba(80,160,220,.10),62vw 24vh 0 18px rgba(245,179,1,.09),78vw 86vh 0 9px rgba(80,160,220,.12),92vw 48vh 0 14px rgba(245,179,1,.08),28vw 38vh 0 8px rgba(80,160,220,.10),8vw 72vh 0 20px rgba(80,160,220,.07)}
+body::after{width:22px;height:22px;right:12%;bottom:-80px;background:rgba(80,160,220,.12);border:1px solid rgba(80,160,220,.30);box-shadow:-18vw 55vh 0 14px rgba(80,160,220,.08),-48vw 20vh 0 8px rgba(245,179,1,.09),-68vw 82vh 0 18px rgba(245,179,1,.07),-82vw 38vh 0 5px rgba(80,160,220,.12),-30vw 92vh 0 11px rgba(80,160,220,.07),-12vw 12vh 0 16px rgba(245,179,1,.08)}
+@keyframes bubbleFloat{from{transform:translateY(0) translateX(0)}50%{transform:translateY(-55vh) translateX(16px)}to{transform:translateY(-110vh) translateX(-10px)}}
+.wrap{position:relative;z-index:1;max-width:980px;margin:0 auto;padding:24px 16px 56px}
 h1{margin:0;font:600 38px/1.1 "Barlow Condensed","Barlow",system-ui,sans-serif;letter-spacing:.01em}
 .sub{margin:4px 0 22px;color:var(--muted)}
 .step{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
@@ -48,74 +52,59 @@ button.small{padding:3px 9px;font-size:14px}
 label.l{display:block;font-weight:500;margin:12px 0 4px}
 .out{margin-top:14px}
 .out canvas{width:100%;height:auto;display:block;border-radius:8px;border:1px solid var(--line)}
+@media print{
+  body>*:not(.wrap){display:none!important}
+  .wrap>*:not(#printSection){display:none!important}
+  .wrap{max-width:none;margin:0;padding:0}
+  #printSection{display:block!important;border:0;margin:0;padding:0;background:#fff}
+  #printSection .row,#printSection .status,#outEmpty{display:none!important}
+  .out canvas{width:100%;max-height:95vh;object-fit:contain;border:0;border-radius:0}
+}
 .note{color:var(--muted);font-size:14px;margin-top:8px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Tool Label Maker</h1>
-  <p class="sub">Read a data sheet photo, then put each tool’s serial number, part number and name on your tool photo.</p>
+  <p class="sub">Enter each tool’s serial number, name and part number, then upload its photo to create a labelled picture.</p>
 
   <section class="step" aria-labelledby="h1">
-    <h2 id="h1">1. Data sheet photo</h2>
-    <p class="hint">Upload the photo of your list. If it is upside down or sideways, press Rotate until the text is upright.</p>
-    <div class="cols">
-      <div>
-        <div class="drop" id="sheetDrop" tabindex="0" role="button" aria-label="Choose the data sheet photo">Click or drop the data sheet photo</div>
-        <input id="sheetFile" type="file" accept="image/*" capture="environment" hidden>
-        <div class="row">
-          <button id="rot" disabled>Rotate</button>
-          <button id="read" class="primary" disabled>Read data sheet</button>
-          <button id="scanCamera" class="primary">Scan with camera</button>
-        </div>
-        <div class="status" id="sheetStatus" role="status"></div>
-      </div>
-      <div>
-        <div class="list" id="list" aria-label="Data from the sheet"></div>
-        <div class="row">
-          <button id="add" class="small">Add row</button>
-          <button id="clear" class="small">Clear all</button>
-        </div>
-        <p class="note">Check the rows after reading. You can fix any serial number, name or part number by typing in it.</p>
-      </div>
+    <h2 id="h1">1. Tool details</h2>
+    <p class="hint">Enter the details in order from left to right on the tool photo.</p>
+    <div class="list" id="list" aria-label="Tool details"></div>
+    <div class="row">
+      <button id="add" class="small">Add row</button>
+      <button id="clear" class="small">Clear all</button>
     </div>
+    <p class="note">First column: S. No. Second column: Name. Third column: Part number.</p>
   </section>
 
   <section class="step" aria-labelledby="h2">
     <h2 id="h2">2. Tool photo</h2>
-    <p class="hint">Upload the photo of the tools, then type the serial numbers in the order they sit from left to right.</p>
+    <p class="hint">Upload the photo containing the tools in the same order as the rows above.</p>
     <div class="cols">
       <div>
         <div class="drop" id="toolDrop" tabindex="0" role="button" aria-label="Choose the tool photo">Click or drop the tool photo</div>
         <input id="toolFile" type="file" accept="image/*" capture="environment" hidden>
       </div>
       <div>
-        <label class="l" for="serials">Serial numbers, left to right</label>
-        <input class="in" id="serials" type="text" autocomplete="off" placeholder="131-136  or  131, 132, 133">
-        <p class="note">A range like 131-136 works, or a list separated by commas. The labels appear as soon as both the photo and serial numbers are ready.</p>
+        <p class="note">Each tool receives its S. No., name and part number from the matching row above.</p>
       </div>
     </div>
   </section>
 
-  <section class="step" aria-labelledby="h3">
+  <section class="step" id="printSection" aria-labelledby="h3">
     <h2 id="h3">3. Labelled photo</h2>
-    <div id="outEmpty" class="note">Add the tool photo and serial numbers to see the result here.</div>
+    <div id="outEmpty" class="note">Add tool details and a tool photo to see the labelled result here.</div>
     <div class="out" id="outWrap" hidden>
       <canvas id="out"></canvas>
-      <div class="row"><button id="dl" class="primary">Download picture</button></div>
+      <div class="row">
+        <button id="dl" class="primary">Download picture</button>
+        <button id="print" class="primary">Print labelled photo</button>
+      </div>
       <div class="status" id="dlStatus" role="status"></div>
     </div>
   </section>
-</div>
-
-<div class="camera-modal" id="cameraModal" role="dialog" aria-modal="true" aria-label="Scan data sheet">
-  <div class="camera-box">
-    <video id="cameraVideo" autoplay playsinline></video>
-    <div class="camera-actions">
-      <button id="cameraCapture" class="primary">Capture &amp; scan</button>
-      <button id="cameraClose">Close</button>
-    </div>
-  </div>
 </div>
 
 <script>
@@ -128,6 +117,7 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     var s=localStorage.getItem('tlm_rows');
     if(s)rows=(function(list){var out=[];(Array.isArray(list)?list:[]).forEach(function(r){var n=normalizeRow(r);if(n.sn)out.push(n)});return out})(JSON.parse(s)||[]);
   }catch(e){rows=[]}
+  if(!rows.length)rows=[{sn:'',name:'',pn:''}];
   function saveRows(){try{localStorage.setItem('tlm_rows',JSON.stringify(rows))}catch(e){}}
 
   /* ---------- capabilities ---------- */
@@ -180,8 +170,8 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   }
   function setStatus(id,t,err){var e=$(id);e.textContent=t;e.className='status'+(err?' err':'')}
   function refreshButtons(){
-    $('rot').disabled=!sheetImg;
-    $('read').disabled=!sheetImg||busy;
+    if($('read'))$('read').disabled=!sheetImg||busy;
+    if($('rot'))$('rot').disabled=!sheetImg;
   }
 
   /* ---------- data sheet ---------- */
@@ -194,8 +184,11 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     if(!f)return;
     if(!/^image\//.test(f.type)){setStatus('sheetStatus','Please choose an image file.',true);return}
     try{
-      sheetImg=await loadImage(f);sheetRot=0;paintSheet();setStatus('sheetStatus','Photo loaded. Starting scan…');refreshButtons();
-      await new Promise(function(resolve){setTimeout(resolve,50)});
+      sheetImg=await loadImage(f);
+      sheetRot=0;
+      paintSheet();
+      setStatus('sheetStatus','Image loaded. Starting automatic scan…');
+      refreshButtons();
       await readSheet();
     }
     catch(e){setStatus('sheetStatus','That image could not be opened. Try a JPG or PNG.',true)}
@@ -219,7 +212,7 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     var lines=text.replace(/\r/g,'').split('\n'),found=[];
     lines.forEach(function(line){
       var cleaned=line.trim();
-      var match=cleaned.match(/^[\s\|+\[\(\{]*([1-9]\d{0,5})(?=[\s\]\|\)\}\[\[])/);
+      var match=cleaned.match(/^[\s|+\-–—_\[\(\{]*([1-9]\d{0,5})(?=\s|[.|,|\/:\)\]\}\[\(\{-])/);
       if(!match)return;
       var serialIndex=cleaned.search(/[1-9]\d{0,5}/);
       var rest=cleaned.slice(serialIndex+match[1].length).replace(/^[\s\|\[\(\{]*/, '').trim();
@@ -264,7 +257,7 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     return found;
   }
   function preprocessCanvas(source,mode){
-    var scale=Math.min(1,2600/Math.max(source.width,source.height));
+    var scale=Math.max(.75,Math.min(3,2600/Math.max(source.width,source.height)));
     var c=document.createElement('canvas');
     c.width=Math.max(1,Math.round(source.width*scale));
     c.height=Math.max(1,Math.round(source.height*scale));
@@ -470,7 +463,7 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     return exact||fuzzy;
   }
   function draw(){
-    var ids=parseSerials($('serials').value.trim());
+    var ids=rows.map(function(row){return serialKey(row.sn)?String(row.sn).trim():''}).filter(Boolean);
     var show=toolImg&&ids.length;
     $('outWrap').hidden=!show;$('outEmpty').hidden=!!show;
     if(!show)return;
@@ -494,13 +487,43 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
       x.textAlign='center';
       var name=row?row.name:'Not in the data sheet';
       if(single){
-        var cx=bx+bw/2,centerY=by+bh*.12;
-        x.font='400 '+f1+'px '+fam;
-        x.fillText('S.no: '+id,cx,centerY+f1);
-        x.fillText('pn: '+(row&&row.pn?row.pn:'—'),cx,centerY+f1*2);
-        x.font='400 '+f2+'px '+fam;
-        var nameLines=wrap(x,'Name: '+name,bw*.88,4);
-        nameLines.forEach(function(line,n){x.fillText(line,cx,centerY+f2*(n+3));});
+        var cx=bx+bw/2;
+        var singleH=W*.20;
+        var singleY=mg*.55;
+        var nameH=W*.115;
+        var nameY=singleY+singleH-W*.012;
+        var nameW=bw*.78;
+        var nameX=cx-nameW/2;
+
+        x.shadowColor='rgba(0,0,0,.35)';
+        x.shadowBlur=W*.012;
+        x.shadowOffsetY=W*.006;
+        x.fillStyle='#000';
+        rr(x,bx,singleY,bw,singleH,W*.018);x.fill();
+        x.shadowColor='transparent';
+
+        x.fillStyle='#fff';
+        x.textAlign='center';
+        x.textBaseline='middle';
+        x.font='400 '+(W*.052)+'px '+fam;
+        x.fillText('S.no: '+id,cx,singleY+singleH*.31);
+        x.font='400 '+(W*.052)+'px '+fam;
+        x.fillText('pn: '+(row&&row.pn?row.pn:'—'),cx,singleY+singleH*.68);
+
+        x.shadowColor='rgba(0,0,0,.35)';
+        x.shadowBlur=W*.012;
+        x.shadowOffsetY=W*.006;
+        x.fillStyle='#111';
+        rr(x,nameX,nameY,nameW,nameH,W*.012);x.fill();
+        x.shadowColor='transparent';
+
+        x.fillStyle='#fff';
+        var nameFont=W*.043;
+        var nameLines=wrap(x,'Name: '+name,nameW*.92,3);
+        x.font='400 '+nameFont+'px '+fam;
+        var firstY=nameY+nameH*.25;
+        var lineGap=nameFont*1.08;
+        nameLines.forEach(function(line,n){x.fillText(line,cx,firstY+n*lineGap)});
       }else{
         var px=bw*.05;
         var y=by+px+f1;
@@ -522,11 +545,18 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   /* ---------- download ---------- */
   async function download(){
     var c=$('out');setStatus('dlStatus','');
-    if(!downloads){setStatus('dlStatus','Saving is not available in this view. Press and hold (or right-click) the picture to save it.',true);return}
     try{
       var blob=await new Promise(function(res,rej){c.toBlob(function(b){b?res(b):rej()},'image/png')});
-      await downloads.save({filename:'tool-labels.png',data:blob});
-    }catch(e){if(!e||e.code!=='cancelled')setStatus('dlStatus','The picture was not saved. Press Download picture to try again.',true)}
+      if(downloads&&typeof downloads.save==='function'){
+        await downloads.save({filename:'tool-labels.png',data:blob});
+      }else{
+        var url=URL.createObjectURL(blob),link=document.createElement('a');
+        link.href=url;link.download='tool-labels.png';
+        document.body.appendChild(link);link.click();link.remove();
+        setTimeout(function(){URL.revokeObjectURL(url)},1000);
+      }
+      setStatus('dlStatus','Labelled photo downloaded.');
+    }catch(e){setStatus('dlStatus','The picture could not be saved. Press and hold the picture to save it.',true)}
   }
 
   /* ---------- wiring ---------- */
@@ -574,22 +604,20 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   function dropZone(zone,input,handler){
     zone.onclick=function(){input.click()};
     zone.onkeydown=function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click()}};
-    input.onchange=function(e){handler(e.target.files[0])};
+    input.onchange=function(e){
+      var file=e.target.files[0];
+      e.target.value='';
+      if(file)handler(file);
+    };
     ['dragover','dragenter'].forEach(function(ev){zone.addEventListener(ev,function(e){e.preventDefault();zone.classList.add('over')})});
     ['dragleave','drop'].forEach(function(ev){zone.addEventListener(ev,function(){zone.classList.remove('over')})});
     zone.addEventListener('drop',function(e){e.preventDefault();handler(e.dataTransfer.files[0])});
   }
-  dropZone($('sheetDrop'),$('sheetFile'),takeSheet);
   dropZone($('toolDrop'),$('toolFile'),takeTool);
-  $('rot').onclick=function(){sheetRot=(sheetRot+90)%360;paintSheet()};
-  $('read').onclick=readSheet;
   $('add').onclick=function(){rows.push({sn:'',name:'',pn:''});saveRows();renderRows();var L=$('list');L.scrollTop=L.scrollHeight};
   $('clear').onclick=function(){if(rows.length&&!confirm('Remove all rows from the list?'))return;rows=[];saveRows();renderRows();draw()};
-  $('scanCamera').onclick=openCamera;
-  $('cameraCapture').onclick=captureAndScan;
-  $('cameraClose').onclick=stopCamera;
-  $('serials').oninput=draw;
   $('dl').onclick=download;
+  $('print').onclick=function(){window.print()};
   renderRows();refreshButtons();
 })();
 </script>
