@@ -62,7 +62,7 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     <div class="cols">
       <div>
         <div class="drop" id="sheetDrop" tabindex="0" role="button" aria-label="Choose the data sheet photo">Click or drop the data sheet photo</div>
-        <input id="sheetFile" type="file" accept="image/*" hidden>
+        <input id="sheetFile" type="file" accept="image/*" capture="environment" hidden>
         <div class="row">
           <button id="rot" disabled>Rotate</button>
           <button id="read" class="primary" disabled>Read data sheet</button>
@@ -87,7 +87,7 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     <div class="cols">
       <div>
         <div class="drop" id="toolDrop" tabindex="0" role="button" aria-label="Choose the tool photo">Click or drop the tool photo</div>
-        <input id="toolFile" type="file" accept="image/*" hidden>
+        <input id="toolFile" type="file" accept="image/*" capture="environment" hidden>
       </div>
       <div>
         <label class="l" for="serials">Serial numbers, left to right</label>
