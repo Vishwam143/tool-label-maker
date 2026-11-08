@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tool Label Maker</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
+<script src="./vendor/tesseract.min.js"></script>
 <style>
 :root{--bg:#eceff1;--surface:#fff;--ink:#14181c;--muted:#5b6670;--line:#cfd6db;--accent:#f5b301;--accent-ink:#14181c;--danger:#c0392b;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12161a;--surface:#1b2127;--ink:#e9eef2;--muted:#95a1ab;--line:#2c353d;--danger:#ff7b6b;color-scheme:dark}}
@@ -29,6 +29,13 @@ button{font:inherit;font-weight:500;border-radius:6px;padding:8px 14px;border:1p
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
 button:disabled{opacity:.45;cursor:not-allowed}
 button.small{padding:3px 9px;font-size:14px}
+.camera-modal{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;padding:16px}
+.camera-modal.open{display:flex}
+.camera-box{width:min(700px,100%);text-align:center;color:#fff}
+.camera-box video{width:100%;max-height:70vh;background:#000;border-radius:8px;object-fit:contain}
+.camera-actions{display:flex;justify-content:center;gap:10px;margin-top:12px}
+.camera-actions button{min-width:120px}
+@media (max-width:720px){.camera-actions{flex-wrap:wrap}}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .status{min-height:22px;margin:10px 0 0;font-size:15px;color:var(--muted)}
 .status.err{color:var(--danger)}
@@ -55,10 +62,11 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     <div class="cols">
       <div>
         <div class="drop" id="sheetDrop" tabindex="0" role="button" aria-label="Choose the data sheet photo">Click or drop the data sheet photo</div>
-        <input id="sheetFile" type="file" accept="image/*" hidden>
+        <input id="sheetFile" type="file" accept="image/*" capture="environment" hidden>
         <div class="row">
           <button id="rot" disabled>Rotate</button>
           <button id="read" class="primary" disabled>Read data sheet</button>
+          <button id="scanCamera" class="primary">Scan with camera</button>
         </div>
         <div class="status" id="sheetStatus" role="status"></div>
       </div>
@@ -79,7 +87,7 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     <div class="cols">
       <div>
         <div class="drop" id="toolDrop" tabindex="0" role="button" aria-label="Choose the tool photo">Click or drop the tool photo</div>
-        <input id="toolFile" type="file" accept="image/*" hidden>
+        <input id="toolFile" type="file" accept="image/*" capture="environment" hidden>
       </div>
       <div>
         <label class="l" for="serials">Serial numbers, left to right</label>
@@ -100,10 +108,20 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   </section>
 </div>
 
+<div class="camera-modal" id="cameraModal" role="dialog" aria-modal="true" aria-label="Scan data sheet">
+  <div class="camera-box">
+    <video id="cameraVideo" autoplay playsinline></video>
+    <div class="camera-actions">
+      <button id="cameraCapture" class="primary">Capture &amp; scan</button>
+      <button id="cameraClose">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   var $=function(id){return document.getElementById(id)};
-  var rows=[],sheetImg=null,sheetRot=0,toolImg=null,sample=null,downloads=null,busy=false;
+  var rows=[],sheetImg=null,sheetRot=0,toolImg=null,sample=null,downloads=null,busy=false,cameraStream=null;
 
   /* ---------- storage (optional) ---------- */
   try{
@@ -152,7 +170,8 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     return list.map(normalizeRow).filter(function(row){return row.sn});
   }
   function rotated(img,rot,maxDim){
-    var w=img.naturalWidth,h=img.naturalHeight,sc=Math.min(1,maxDim/Math.max(w,h));
+    var w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+    var sc=Math.min(1,maxDim/Math.max(w,h));
     var dw=Math.round(w*sc),dh=Math.round(h*sc),swap=rot%180!==0,c=document.createElement('canvas');
     c.width=swap?dh:dw;c.height=swap?dw:dh;
     var x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
@@ -174,7 +193,11 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   async function takeSheet(f){
     if(!f)return;
     if(!/^image\//.test(f.type)){setStatus('sheetStatus','Please choose an image file.',true);return}
-    try{sheetImg=await loadImage(f);sheetRot=0;paintSheet();setStatus('sheetStatus','');refreshButtons()}
+    try{
+      sheetImg=await loadImage(f);sheetRot=0;paintSheet();setStatus('sheetStatus','Photo loaded. Starting scan…');refreshButtons();
+      await new Promise(function(resolve){setTimeout(resolve,50)});
+      await readSheet();
+    }
     catch(e){setStatus('sheetStatus','That image could not be opened. Try a JPG or PNG.',true)}
   }
   var PROMPT='This photo shows a printed inventory table of tools. It may be rotated or upside down, so read it in its correct orientation. '+
@@ -195,21 +218,39 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   function parseOcrRows(text){
     var lines=text.replace(/\r/g,'').split('\n'),found=[];
     lines.forEach(function(line){
-      var cleaned=line.trim().replace(/^[|]\s*/, '');
-      var match=cleaned.match(/^(\d{1,6})\b\s*(.*)$/);
+      var cleaned=line.trim();
+      var match=cleaned.match(/^[\s\|+\[\(\{]*([1-9]\d{0,5})(?=[\s\]\|\)\}\[\[])/);
       if(!match)return;
-      var rest=match[2].trim();
+      var serialIndex=cleaned.search(/[1-9]\d{0,5}/);
+      var rest=cleaned.slice(serialIndex+match[1].length).replace(/^[\s\|\[\(\{]*/, '').trim();
       var pn='',name=rest;
+      var pnMatches=[];
+      var pnPattern=/(?:^|[\s\|\[\(\{])([A-Z]*\d{5,}[A-Z0-9.\-/]*)/gi;
+      var foundPn;
+      while((foundPn=pnPattern.exec(rest))){
+        pnMatches.push({value:foundPn[1].replace(/[\]\)\}\|,;]+$/g,''),index:foundPn.index});
+      }
+      if(pnMatches.length){
+        var lastPn=pnMatches[pnMatches.length-1];
+        pn=lastPn.value;
+        name=rest.slice(0,lastPn.index).replace(/[\s\|\[\(\{\]\)\},;]+$/g,' ').trim();
+      }
       var columns=rest.split(/\s{2,}|\t{1,}|\|/).map(function(value){return value.trim()}).filter(Boolean);
       if(columns.length>=2){
-        name=columns.slice(0,-1).join(' ').trim();
-        pn=columns[columns.length-1].trim();
+        var last=columns[columns.length-1];
+        if(/^(?:[A-Z0-9]{4,}|[A-Z]*\d{5,}[A-Z0-9]*)$/i.test(last)){
+          pn=last;
+          name=columns.slice(0,-1).join(' ').trim();
+        }
       }else{
         var tokens=rest.match(/\S+/g)||[];
         var pnIndex=-1;
         for(var i=tokens.length-1;i>=0;i--){
-          if(tokens[i].match(/^[A-Z0-9][A-Z0-9.\-/]{3,}$/i)){
+          var token=tokens[i].replace(/^[\[\(\{]+|[\]\)\},;]+$/g,'');
+          var digitCount=(token.match(/\d/g)||[]).length;
+          if(digitCount>=5 && /^[A-Z0-9][A-Z0-9.\-/]*$/i.test(token)){
             pnIndex=i;
+            tokens[i]=token;
             break;
           }
         }
@@ -221,6 +262,67 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
       found.push({sn:match[1],name:name,pn:pn});
     });
     return found;
+  }
+  function preprocessCanvas(source,mode){
+    var scale=Math.min(1,2600/Math.max(source.width,source.height));
+    var c=document.createElement('canvas');
+    c.width=Math.max(1,Math.round(source.width*scale));
+    c.height=Math.max(1,Math.round(source.height*scale));
+    var ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+    ctx.drawImage(source,0,0,c.width,c.height);
+    if(mode==='color')return c;
+    var image=ctx.getImageData(0,0,c.width,c.height),d=image.data,hist=new Array(256).fill(0);
+    var gray=new Uint8ClampedArray(c.width*c.height);
+    for(var i=0;i<gray.length;i++){
+      var j=i*4,v=Math.round(.299*d[j]+.587*d[j+1]+.114*d[j+2]);
+      var contrast=mode==='soft' ? 1.18 : 1.45;
+      v=Math.max(0,Math.min(255,(v-128)*contrast+128));
+      gray[i]=v;hist[v]++;
+    }
+    var threshold=128;
+    if(mode==='threshold'){
+      var total=c.width*c.height,sum=0,between=0,omega1=0,max=0;
+      for(var t=0;t<256;t++)sum+=t*hist[t];
+      for(t=0;t<256;t++){
+        omega1+=hist[t];if(!omega1)continue;
+        var omega2=total-omega1;if(!omega2)break;
+        var mu1=0,mu2=0;
+        for(var k=0;k<=t;k++)mu1+=k*hist[k];
+        for(k=t+1;k<256;k++)mu2+=k*hist[k];
+        mu1/=omega1;mu2/=omega2;
+        between=omega1*omega2*(mu1-mu2)*(mu1-mu2);
+        if(between>max){max=between;threshold=t}
+      }
+    }
+    for(i=0;i<gray.length;i++){
+      var value=mode==='threshold' ? (gray[i]>=threshold?255:0) : gray[i];
+      j=i*4;d[j]=d[j+1]=d[j+2]=value;d[j+3]=255;
+    }
+    ctx.putImageData(image,0,0);
+    return c;
+  }
+  async function recognizeCanvas(canvas,psm,label){
+    var result=await Tesseract.recognize(canvas,'eng',{
+      tessedit_pageseg_mode:String(psm),
+      preserve_interword_spaces:'1',
+      workerPath:new URL('./vendor/worker.min.js',location.href).href,
+      corePath:new URL('./vendor/',location.href).href,
+      langPath:new URL('./vendor/',location.href).href,
+      logger:function(info){
+        if(info.status==='recognizing text'&&typeof info.progress==='number'){
+          setStatus('sheetStatus',label+': '+Math.round(info.progress*100)+'%');
+        }
+      }
+    });
+    var data=result&&result.data ? result.data : {text:'',confidence:0};
+    return data;
+  }
+  function scoreOcr(data){
+    var text=data&&data.text ? data.text : '';
+    var rows=parseOcrRows(text);
+    var confidence=typeof data.confidence==='number' ? data.confidence : 0;
+    return rows.length*100+confidence+((text.match(/\b\d{2,6}\b/g)||[]).length*2);
   }
   async function readSheet(){
     if(!sheetImg||busy)return;
@@ -237,16 +339,47 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
       }
       if(!Array.isArray(data)){
         if(!window.Tesseract)throw new Error('OCR is unavailable because the internet connection or OCR library could not be loaded.');
-        var canvas=rotated(sheetImg,sheetRot,1800);
-        setStatus('sheetStatus','Running text recognition. This may take a minute…');
-        var result=await Tesseract.recognize(canvas,'eng',{
-          logger:function(info){
-            if(info.status==='recognizing text'&&typeof info.progress==='number'){
-              setStatus('sheetStatus','Reading text: '+Math.round(info.progress*100)+'%');
-            }
+        var base=rotated(sheetImg,sheetRot,2600);
+        var bestOrientation=null,bestScan=null,bestScore=-1;
+        var angles=[0,90,180,270];
+        for(var a=0;a<angles.length;a++){
+          setStatus('sheetStatus','Checking page orientation ('+(a+1)+' of 4)…');
+          var oriented=rotated(base,angles[a],1800);
+          var probe=await recognizeCanvas(preprocessCanvas(oriented,'threshold'),11,'Checking orientation');
+          var score=scoreOcr(probe);
+          if(score>bestScore){bestScore=score;bestOrientation=angles[a];bestScan=probe}
+          if(score>=700)break;
+        }
+        var selected=rotated(base,bestOrientation,2600);
+        setStatus('sheetStatus','Reading table with an enhanced image…');
+        var results=[];
+        var detailed=await recognizeCanvas(preprocessCanvas(selected,'threshold'),6,'Enhanced text recognition');
+        results.push(detailed);
+        var secondary=await recognizeCanvas(preprocessCanvas(selected,'soft'),11,'Reading fallback layout');
+        results.push(secondary);
+
+        var candidates=[],candidateScores=[];
+        for(var r=0;r<results.length;r++){
+          var parsed=parseOcrRows(results[r].text||'');
+          candidates=candidates.concat(parsed);
+          candidateScores.push(scoreOcr(results[r]));
+        }
+        var bySerial={};
+        candidates.forEach(function(row){
+          var sn=serialKey(row.sn);
+          if(!sn)return;
+          if(!bySerial[sn]||(!bySerial[sn].pn&&row.pn)||(!bySerial[sn].name&&row.name)){
+            var existing=bySerial[sn]||{sn:sn,name:'',pn:''};
+            if(!existing.name&&row.name)existing.name=row.name;
+            if(!existing.pn&&row.pn)existing.pn=row.pn;
+            bySerial[sn]=existing;
           }
         });
-        data=parseOcrRows(result.data&&result.data.text?result.data.text:'');
+        data=Object.keys(bySerial).map(function(sn){
+          var row=bySerial[sn];
+          return {sn:row.sn,name:row.name,pn:row.pn};
+        });
+        if(!data.length&&bestScan)data=parseOcrRows(bestScan.text||'');
       }
       if(data&&typeof data==='object'&&!Array.isArray(data)){
         if(Array.isArray(data.rows))data=data.rows;
@@ -259,7 +392,9 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
     }catch(e){
       var message=e&&e.message&&e.message.indexOf('OCR is unavailable')===0
         ?e.message
-        :copyFor(e&&e.code);
+        :(e&&e.message
+          ?'OCR error: '+e.message
+          :copyFor(e&&e.code));
       setStatus('sheetStatus',message,true)
     }
     busy=false;refreshButtons();
@@ -395,6 +530,47 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   }
 
   /* ---------- wiring ---------- */
+  function stopCamera(){
+    if(cameraStream){
+      cameraStream.getTracks().forEach(function(track){track.stop()});
+      cameraStream=null;
+    }
+    $('cameraVideo').srcObject=null;
+    $('cameraModal').classList.remove('open');
+  }
+  async function openCamera(){
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+      setStatus('sheetStatus','Live camera is not supported by this browser. Use the upload button instead.',true);
+      return;
+    }
+    try{
+      cameraStream=await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},
+        audio:false
+      });
+      var video=$('cameraVideo');
+      video.srcObject=cameraStream;
+      await video.play();
+      $('cameraModal').classList.add('open');
+      setStatus('sheetStatus','Align the data sheet inside the camera view, then press Capture & scan.');
+    }catch(e){
+      stopCamera();
+      setStatus('sheetStatus','Camera permission was denied or no camera is available. Use the upload button instead.',true);
+    }
+  }
+  async function captureAndScan(){
+    var video=$('cameraVideo');
+    if(!video.videoWidth||!video.videoHeight)return;
+    var canvas=document.createElement('canvas');
+    canvas.width=video.videoWidth;
+    canvas.height=video.videoHeight;
+    canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
+    var blob=await new Promise(function(resolve){canvas.toBlob(resolve,'image/jpeg',.92)});
+    stopCamera();
+    if(!blob)return;
+    var file=new File([blob],'data-sheet-camera.jpg',{type:'image/jpeg'});
+    await takeSheet(file);
+  }
   function dropZone(zone,input,handler){
     zone.onclick=function(){input.click()};
     zone.onkeydown=function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click()}};
@@ -409,6 +585,9 @@ label.l{display:block;font-weight:500;margin:12px 0 4px}
   $('read').onclick=readSheet;
   $('add').onclick=function(){rows.push({sn:'',name:'',pn:''});saveRows();renderRows();var L=$('list');L.scrollTop=L.scrollHeight};
   $('clear').onclick=function(){if(rows.length&&!confirm('Remove all rows from the list?'))return;rows=[];saveRows();renderRows();draw()};
+  $('scanCamera').onclick=openCamera;
+  $('cameraCapture').onclick=captureAndScan;
+  $('cameraClose').onclick=stopCamera;
   $('serials').oninput=draw;
   $('dl').onclick=download;
   renderRows();refreshButtons();
